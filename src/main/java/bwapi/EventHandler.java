@@ -10,6 +10,8 @@ class EventHandler implements Client.EventHandler {
         this.eventListener = eventListener;
         this.game = new Game(client);
         this.client = client;
+
+        GameContainer.setGame(game);
     }
 
     @Override

@@ -3858,7 +3858,7 @@ public class Unit implements Comparable<Unit> {
             return false;
         }
 
-        if (!tilePos.isValid(game)) {
+        if (!tilePos.isValid()) {
             return false;
         }
 
@@ -5117,7 +5117,7 @@ public class Unit implements Comparable<Unit> {
         }
 
         if (getType() != Terran_Bunker) {
-            if (!new WalkPosition(targDropPos.x / 8, targDropPos.y / 8).isValid(game)) {
+            if (!new WalkPosition(targDropPos.x / 8, targDropPos.y / 8).isValid()) {
                 return false;
             } else return game.isWalkable(targDropPos.x / 8, targDropPos.y / 8);
         }

@@ -76,7 +76,8 @@ public abstract class Point<T extends Point> implements Comparable<Point> {
     /**
      * Check if the current point is a valid point for the current game
      */
-    public boolean isValid(final Game game) {
+    public boolean isValid() {
+        final Game game = GameContainer.getGame();
         return x >= 0 && y >= 0 &&
                 scalar * x < game.mapPixelWidth() &&
                 scalar * y < game.mapPixelHeight();
