@@ -60,6 +60,8 @@ public class Unit implements Comparable<Unit> {
     private int lastCommandFrame;
     private UnitCommand lastCommand;
 
+    UnitSelf self = new UnitSelf();
+
 
     Unit(final UnitData unitData, int id, final Game game) {
         this.unitData = unitData;
@@ -814,6 +816,10 @@ public class Unit implements Comparable<Unit> {
         return IntStream.range(0, unitData.getTrainingQueueCount())
                 .mapToObj(i -> UnitType.idToEnum[unitData.getTrainingQueue(i)])
                 .collect(Collectors.toList());
+    }
+
+    int getTrainingQueueCount() {
+        return unitData.getTrainingQueueCount();
     }
 
     /**
@@ -2010,6 +2016,9 @@ public class Unit implements Comparable<Unit> {
                 return false;
             }
         }
+
+        // LATENCY STUFF HERE :)
+        command.unit.
 
         game.addUnitCommand(
                 command.getType().id,

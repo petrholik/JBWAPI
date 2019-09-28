@@ -28,6 +28,8 @@ public class Player implements Comparable<Player> {
     private final Force force;
     private final TilePosition startLocation;
 
+    PlayerSelf self = new PlayerSelf();
+
     Player(final PlayerData playerData, final int id, final Game game) {
         this.playerData = playerData;
         this.game = game;

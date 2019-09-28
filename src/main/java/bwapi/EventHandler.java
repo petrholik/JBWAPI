@@ -21,7 +21,6 @@ class EventHandler implements Client.EventHandler {
         switch (event.getType()) {
             case MatchStart:
                 game.init();
-                game.setLatCom(false);
                 eventListener.onStart();
                 break;
             case MatchEnd:
