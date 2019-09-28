@@ -4,17 +4,14 @@ package bwapi;
  * https://github.com/bwapi/bwapi/blob/e4a29d73e6021037901da57ceb06e37248760240/bwapi/include/BWAPI/Client/CommandTemp.h
  */
 class CommandTemp {
-
-
     enum EventType { Order, Resource, Finish };
 
     UnitCommand command;
     EventType eventType = EventType.Resource;
-    int savedExtra = -1;
-    int savedExtra2 = -1;
     Player player = null;
+    Game game;
 
-    CommandTemp(final UnitCommand command) {
+    CommandTemp(final UnitCommand command, Game game) {
         this.command = command;
     }
 
@@ -30,14 +27,14 @@ class CommandTemp {
             case Halt_Construction:
                 eventType = EventType.Order;
             default:
-                execute(game().getRemainingLatencyFrames() == 0);
+                execute(game.getRemainingLatencyFrames() == 0);
                 break;
         }
     }
 
     void execute(boolean isCurrentFrame) {
         // Immediately return if latency compensation is disabled or if the command was queued
-        if (!game().isLatComEnabled() || command.isQueued()) return;
+        if (!game.isLatComEnabled() || command.isQueued()) return;
         Unit unit = command.unit;
         Unit target = command.target;
 
@@ -56,7 +53,7 @@ class CommandTemp {
 
         // Get the player (usually the unit's owner)
         if (player == null) {
-            player = unit != null ? unit.getPlayer() : game().self();
+            player = unit != null ? unit.getPlayer() : game.self();
         }
 
         // Existence test
@@ -164,7 +161,7 @@ class CommandTemp {
             // RLF + 2: Finish event
             case Cancel_Construction: {
                 if (unit.getType().getRace() == Race.Terran) {
-                    Unit builder = game().getUnit(unit.self.buildUnit);
+                    Unit builder = game.getUnit(unit.self.buildUnit);
                     if (builder != null && builder.exists()) {
                         switch (eventType) {
                             case Resource:
@@ -832,9 +829,4 @@ class CommandTemp {
             }
         }
     }
-
-    private static Game game() {
-        return GameContainer.getGame();
-    }
-
 }

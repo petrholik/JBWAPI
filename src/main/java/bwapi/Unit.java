@@ -2017,8 +2017,9 @@ public class Unit implements Comparable<Unit> {
             }
         }
 
-        // LATENCY STUFF HERE :)
-        command.unit.
+        if (game.isLatComEnabled()) {
+            new CommandTemp(command, game).execute();
+        }
 
         game.addUnitCommand(
                 command.getType().id,
