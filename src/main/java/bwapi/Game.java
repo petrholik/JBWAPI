@@ -883,7 +883,7 @@ public class Game {
     }
 
     public boolean isWalkable(final WalkPosition position) {
-        if (!position.isValid(this)) {
+        if (!position.isValid()) {
             return false;
         }
         return walkable[position.x][position.y];
@@ -908,7 +908,7 @@ public class Game {
     }
 
     public int getGroundHeight(final TilePosition position) {
-        if (!position.isValid(this)) {
+        if (!position.isValid()) {
             return 0;
         }
         return groundHeight[position.x][position.y];
@@ -939,7 +939,7 @@ public class Game {
     }
 
     public boolean isBuildable(final TilePosition position, final boolean includeBuildings) {
-        if (!position.isValid(this)) {
+        if (!position.isValid()) {
             return false;
         }
         return buildable[position.x][position.y] && (!includeBuildings || !gameData.isOccupied(position.x, position.y));
@@ -959,7 +959,7 @@ public class Game {
     }
 
     public boolean isVisible(final TilePosition position) {
-        if (!position.isValid(this)) {
+        if (!position.isValid()) {
             return false;
         }
         return gameData.isVisible(position.x, position.y);
@@ -980,7 +980,7 @@ public class Game {
     }
 
     public boolean isExplored(final TilePosition position) {
-        if (!position.isValid(this)) {
+        if (!position.isValid()) {
             return false;
         }
         return gameData.isExplored(position.x, position.y);
@@ -998,7 +998,7 @@ public class Game {
     }
 
     public boolean hasCreep(final TilePosition position) {
-        if (!position.isValid(this)) {
+        if (!position.isValid()) {
             return false;
         }
         return gameData.getHasCreep(position.x, position.y);
@@ -1026,7 +1026,7 @@ public class Game {
     }
 
     public boolean hasPowerPrecise(final Position position, final UnitType unitType) {
-        if (!position.isValid(this)) {
+        if (!position.isValid()) {
             return false;
         }
         return hasPower(position.x, position.y, unitType, self().getUnits().stream().filter(u -> u.getType() == Protoss_Pylon).collect(Collectors.toList()));
@@ -1112,7 +1112,7 @@ public class Game {
         final TilePosition rb = lt.add(type.tileSize());
 
         // Map limit check
-        if (!lt.isValid(this) || !(rb.toPosition().subtract(new Position(1, 1)).isValid(this))) {
+        if (!lt.isValid() || !(rb.toPosition().subtract(new Position(1, 1)).isValid())) {
             return false;
         }
 
@@ -2385,7 +2385,7 @@ public class Game {
         if (source == null || destination == null) {
             return false;
         }
-        if (source.isValid(this) && destination.isValid(this)) {
+        if (source.isValid() && destination.isValid()) {
             final Region rgnA = getRegionAt(source);
             final Region rgnB = getRegionAt(destination);
             return rgnA != null && rgnB != null && rgnA.getRegionGroupID() == rgnB.getRegionGroupID();
@@ -2543,7 +2543,7 @@ public class Game {
     }
 
     public Region getRegionAt(final Position position) {
-        if (!position.isValid(this)) {
+        if (!position.isValid()) {
             return null;
         }
         final short idx = mapTileRegionID[position.x / 32][position.y / 32];

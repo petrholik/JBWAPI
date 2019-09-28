@@ -132,7 +132,7 @@ class BuildingPlacer {
         // exclude positions off the map
         final TilePosition start = desiredPosition.subtract(new TilePosition(MAX_RANGE, MAX_RANGE).divide(2));
         reserve.iterate((pr, x, y) -> {
-            if (!(start.add(new TilePosition(x, y)).isValid(game))) {
+            if (!(start.add(new TilePosition(x, y)).isValid())) {
                 pr.setValue(x, y, (byte) 0);
             }
         });
