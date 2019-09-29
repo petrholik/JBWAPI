@@ -1,15 +1,18 @@
 package bwapi;
 
-public class PlayerSelf {
-    /*
-    * DIFFERENCE HERE IS THAT THIS SHOULD BE ADDED TO, INSTEAD OF TAKEN DIRECTLY.
-    */
-    int minerals;
-    int gas;
+import java.util.stream.IntStream;
 
-    int[] supplyUsed = new int[3];
+class PlayerSelf {
+    IntegerCache minerals = new IntegerCache();
+    IntegerCache gas = new IntegerCache();
+    IntegerCache[] supplyUsed = new IntegerCache[3];
 
-    boolean[] isResearching = new boolean[46 + 1];
-    boolean[] isUpgrading = new boolean[46 + 1];
+    BooleanCache[] isResearching = new BooleanCache[TechType.idToEnum.length];
+    BooleanCache[] isUpgrading = new BooleanCache[UpgradeType.idToEnum.length];
 
+    PlayerSelf() {
+        IntStream.range(0, supplyUsed.length).forEach(i -> supplyUsed[i] = new IntegerCache());
+        IntStream.range(0, isResearching.length).forEach(i -> isResearching[i] = new BooleanCache());
+        IntStream.range(0, isUpgrading.length).forEach(i -> isUpgrading[i] = new BooleanCache());
+    }
 }

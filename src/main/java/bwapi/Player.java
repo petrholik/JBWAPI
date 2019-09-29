@@ -4,6 +4,7 @@ import bwapi.ClientData.PlayerData;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static bwapi.UnitType.*;
@@ -198,7 +199,11 @@ public class Player implements Comparable<Player> {
      * @return Amount of minerals that the player currently has for spending.
      */
     public int minerals() {
-        return playerData.getMinerals();
+        int minerals = playerData.getMinerals();
+        if (game.shouldApplyLatcom(self.minerals)) {
+            return minerals + self.minerals.get();
+        }
+        return minerals;
     }
 
     /**
@@ -209,7 +214,11 @@ public class Player implements Comparable<Player> {
      * @return Amount of gas that the player currently has for spending.
      */
     public int gas() {
-        return playerData.getGas();
+        int gas = playerData.getGas();
+        if (game.shouldApplyLatcom(self.gas)) {
+            return gas + self.gas.get();
+        }
+        return gas;
     }
 
     /**
@@ -344,7 +353,11 @@ public class Player implements Comparable<Player> {
      * @see #supplyTotal
      */
     public int supplyUsed(final Race race) {
-        return playerData.getSupplyUsed(race.id);
+        int supplyUsed = playerData.getSupplyUsed(race.id);
+        if (game.shouldApplyLatcom(self.supplyUsed[race.id])) {
+            return supplyUsed + self.supplyUsed[race.id].get();
+        }
+        return supplyUsed;
     }
 
     public int allUnitCount() {
@@ -493,6 +506,9 @@ public class Player implements Comparable<Player> {
      * @see #hasResearched
      */
     public boolean isResearching(final TechType tech) {
+        if (game.shouldApplyLatcom(self.isResearching[tech.id])) {
+            return self.isResearching[tech.id].get();
+        }
         return playerData.isResearching(tech.id);
     }
 
@@ -504,6 +520,9 @@ public class Player implements Comparable<Player> {
      * @see Unit#upgrade
      */
     public boolean isUpgrading(final UpgradeType upgrade) {
+        if (game.shouldApplyLatcom(self.isUpgrading[upgrade.id])) {
+            return self.isResearching[upgrade.id].get();
+        }
         return playerData.isUpgrading(upgrade.id);
     }
 

@@ -4,7 +4,11 @@ package bwapi;
  * https://github.com/bwapi/bwapi/blob/e4a29d73e6021037901da57ceb06e37248760240/bwapi/include/BWAPI/Client/CommandTemp.h
  */
 class CommandTemp {
-    enum EventType { Order, Resource, Finish };
+    enum EventType {
+        Order,
+        Resource,
+        Finish
+    }
 
     UnitCommand command;
     EventType eventType = EventType.Resource;
@@ -13,6 +17,7 @@ class CommandTemp {
 
     CommandTemp(final UnitCommand command, Game game) {
         this.command = command;
+        this.game = game;
     }
 
     int getUnitID(Unit unit) {
@@ -33,10 +38,12 @@ class CommandTemp {
     }
 
     void execute(boolean isCurrentFrame) {
+        System.out.println("EXECUTE[" + game.getFrameCount() + "] " + command);
         // Immediately return if latency compensation is disabled or if the command was queued
         if (!game.isLatComEnabled() || command.isQueued()) return;
         Unit unit = command.unit;
         Unit target = command.target;
+        int frameCount = game.getFrameCount();
 
         if (isCurrentFrame) {
             switch (command.type) { // Commands which do things during the current frame
@@ -110,8 +117,8 @@ class CommandTemp {
                 UnitType addonType = UnitType.idToEnum[command.extra];
                 switch (eventType) {
                     case Resource:
-                        player.self.minerals  -= addonType.mineralPrice();
-                        player.self.gas       -= addonType.gasPrice();
+                        player.self.minerals.addOrSet(-addonType.mineralPrice(), frameCount);
+                        player.self.gas.addOrSet(-addonType.gasPrice(), frameCount);
 
                         if (!isCurrentFrame) { // We will pretend the building is busy building, this doesn't
                             unit.self.isIdle = false;
@@ -140,8 +147,8 @@ class CommandTemp {
                 switch(eventType) {
                     case Resource: {
                         UnitType addonType = unit.getBuildType();
-                        player.self.minerals += addonType.mineralPrice() * 0.75;
-                        player.self.gas      += addonType.gasPrice()     * 0.75;
+                        player.self.minerals.addOrSet((int) (addonType.mineralPrice() * 0.75), frameCount);
+                        player.self.gas.addOrSet((int) (addonType.gasPrice() * 0.75), frameCount);
                         unit.self.buildType   = UnitType.None;
                     }
                     break;
@@ -180,8 +187,8 @@ class CommandTemp {
 
                 if (eventType == EventType.Resource) {
                     unit.self.buildUnit          = -1;
-                    player.self.minerals        += unit.getType().mineralPrice() * 0.75;
-                    player.self.gas             += unit.getType().gasPrice()     * 0.75;
+                    player.self.minerals.addOrSet((int) (unit.getType().mineralPrice() * 0.75), frameCount);
+                    player.self.gas.addOrSet((int) (unit.getType().gasPrice() * 0.75), frameCount);
                     unit.self.remainingBuildTime = 0;
                 }
 
@@ -194,7 +201,8 @@ class CommandTemp {
                             unit.self.order          = Order.ResetCollision;
                             unit.self.isConstructing = false;
 
-                            player.self.supplyUsed[unit.getType().getRace().id] += unit.getType().supplyRequired();
+                            player.self.supplyUsed[unit.getType().getRace().id]
+                                    .addOrSet(unit.getType().supplyRequired(), frameCount);
                             break;
 
                         case Order:
@@ -219,12 +227,12 @@ class CommandTemp {
                         UnitType newType = builtType.whatBuilds().getFirst();
 
                         if (newType.isBuilding()) {
-                            player.self.minerals += builtType.mineralPrice() * 0.75;
-                            player.self.gas      += builtType.gasPrice()     * 0.75;
+                            player.self.minerals.addOrSet((int) (builtType.mineralPrice() * 0.75), frameCount);
+                            player.self.gas.addOrSet((int) (builtType.gasPrice() * 0.75), frameCount);
                         }
                         else {
-                            player.self.minerals += builtType.mineralPrice();
-                            player.self.gas      += builtType.gasPrice();
+                            player.self.minerals.addOrSet(builtType.mineralPrice(), frameCount);
+                            player.self.gas.addOrSet(builtType.gasPrice(), frameCount);
                         }
 
                         if (newType.isBuilding() && newType.producesCreep()) {
@@ -255,14 +263,16 @@ class CommandTemp {
                                 unit.self.secondaryOrder = Order.SpreadCreep;
                             }
                         }
-                        else
-                        {
-                            player.self.supplyUsed[unit.getType().getRace().id] -=
-                                    unit.getType().supplyRequired() * (1 + (unit.getType().isTwoUnitsInOneEgg() ? 1 : 0));
+                        else {
+                            player.self.supplyUsed[unit.getType().getRace().id]
+                                    .addOrSet(
+                                    - (unit.getType().supplyRequired() * (1 + (unit.getType().isTwoUnitsInOneEgg() ? 1 : 0))),
+                                    frameCount);
 
-                            player.self.supplyUsed[unit.getType().getRace().id] += // Could these races be different? Probably not.
+                            player.self.supplyUsed[unit.getType().getRace().id].addOrSet( // Could these races be different? Probably not.
                                     // Should we handle it?            Definetely.
-                                    unit.getType().whatBuilds().getFirst().supplyRequired() * unit.getType().whatBuilds().getSecond();
+                                    unit.getType().whatBuilds().getFirst().supplyRequired() * unit.getType().whatBuilds().getSecond(),
+                                    frameCount);
                             // Note: unit.getType().whatBuilds().second is always 1 but we
                             // might as well handle the general case, in case Blizzard
                             // all of a sudden allows you to cancel archon morphs
@@ -290,11 +300,10 @@ class CommandTemp {
             // RLF + 1: Order update
             case Cancel_Research: {
                 switch(eventType) {
-                    case Resource:
-                    {
+                    case Resource: {
                         TechType techType =  unit.getTech();
-                        player.self.minerals           += techType.mineralPrice();
-                        player.self.gas                += techType.gasPrice();
+                        player.self.minerals.addOrSet(techType.mineralPrice(), frameCount);
+                        player.self.gas.addOrSet(techType.gasPrice(), frameCount);
                         unit.self.remainingResearchTime = 0;
                         unit.self.tech                  = TechType.None;
                     }
@@ -316,8 +325,8 @@ class CommandTemp {
                 if (command.extra != 0) {
                     if (eventType == EventType.Resource) {
                         UnitType unitType = unit.getTrainingQueue().get(command.extra);
-                        player.self.minerals += unitType.mineralPrice();
-                        player.self.gas      += unitType.gasPrice();
+                        player.self.minerals.addOrSet(unitType.mineralPrice(), frameCount);
+                        player.self.gas.addOrSet(unitType.gasPrice(), frameCount);
 
                         // Shift training queue back one slot after the cancelled unit
                         for (int i = command.extra; i < 4; ++i) {
@@ -337,8 +346,8 @@ class CommandTemp {
                 switch(eventType) {
                     case Resource: {
                         UnitType unitType = unit.getTrainingQueue().get(unit.getTrainingQueueCount() - 1);
-                        player.self.minerals += unitType.mineralPrice();
-                        player.self.gas      += unitType.gasPrice();
+                        player.self.minerals.addOrSet(unitType.mineralPrice(), frameCount);
+                        player.self.gas.addOrSet(unitType.gasPrice(), frameCount);
 
                         unit.self.buildUnit = -1;
 
@@ -352,7 +361,8 @@ class CommandTemp {
                     case Order: {
                         --unit.self.trainingQueueCount;
                         UnitType unitType = unit.getTrainingQueue().get(unit.getTrainingQueueCount());
-                        player.self.supplyUsed[unitType.getRace().id] -= unitType.supplyRequired();
+                        player.self.supplyUsed[unitType.getRace().id]
+                                .addOrSet(-unitType.supplyRequired(), frameCount);
 
                         if (unit.getTrainingQueueCount() == 0) {
                             unit.self.buildType = UnitType.None;
@@ -384,8 +394,8 @@ class CommandTemp {
                         UpgradeType upgradeType = unit.getUpgrade();
                         int nextLevel     = unit.getPlayer().getUpgradeLevel(upgradeType) + 1;
 
-                        player.self.minerals += upgradeType.mineralPrice(nextLevel);
-                        player.self.gas      += upgradeType.gasPrice(nextLevel);
+                        player.self.minerals.addOrSet(upgradeType.mineralPrice(nextLevel), frameCount);
+                        player.self.gas.addOrSet(upgradeType.gasPrice(nextLevel), frameCount);
 
                         unit.self.upgrade              = UpgradeType.None;
                         unit.self.remainingUpgradeTime = 0;
@@ -516,18 +526,20 @@ class CommandTemp {
                                 unit.self.order = Order.ZergBuildingMorph;
                                 unit.self.type  = morphType;
                             }
-                            player.self.minerals -= morphType.mineralPrice();
-                            player.self.gas      -= morphType.gasPrice();
+                            player.self.minerals.addOrSet(-morphType.mineralPrice(), frameCount);
+                            player.self.gas.addOrSet(-morphType.gasPrice(), frameCount);
                         }
                         else {
-                            player.self.supplyUsed[morphType.getRace().id] += morphType.supplyRequired() *
-                                    (1 + (morphType.isTwoUnitsInOneEgg() ? 1 : 0)) - unit.getType().supplyRequired();
+                            player.self.supplyUsed[morphType.getRace().id]
+                                    .addOrSet(morphType.supplyRequired() *
+                                    (1 + (morphType.isTwoUnitsInOneEgg() ? 1 : 0)) - unit.getType().supplyRequired(),
+                                    frameCount);
 
                             if(!isCurrentFrame) {
                                 unit.self.order       = Order.ZergUnitMorph;
 
-                                player.self.minerals -= morphType.mineralPrice();
-                                player.self.gas      -= morphType.gasPrice();
+                                player.self.minerals.addOrSet(-morphType.mineralPrice(), frameCount);
+                                player.self.gas.addOrSet(-morphType.gasPrice(), frameCount);
 
                                 switch(morphType) {
                                     case Zerg_Lurker_Egg:
@@ -598,9 +610,9 @@ class CommandTemp {
                 unit.self.isIdle = false;
                 unit.self.remainingResearchTime = techType.researchTime();
 
-                player.self.minerals -= techType.mineralPrice();
-                player.self.gas -= techType.gasPrice();
-                player.self.isResearching[techType.id] = true;
+                player.self.minerals.addOrSet(-techType.mineralPrice(), frameCount);
+                player.self.gas.addOrSet(-techType.gasPrice(), frameCount);
+                player.self.isResearching[techType.id].update(true, frameCount);
             }
             break;
 
@@ -703,14 +715,15 @@ class CommandTemp {
 
                 if (!isCurrentFrame) {
                     // Happens on RLF, we don't want to duplicate this.
-                    player.self.minerals -= unitType.mineralPrice();
-                    player.self.gas      -= unitType.gasPrice();
+                    player.self.minerals.addOrSet(-unitType.mineralPrice(), frameCount);
+                    player.self.gas.addOrSet(-unitType.gasPrice(), frameCount);
                 }
 
                 // Happens on RLF + 1, we want to pretend this happens on RLF.
                 unit.self.trainingQueue[unit.getTrainingQueueCount()] = unitType;
                 unit.self.trainingQueueCount++;
-                player.self.supplyUsed[unitType.getRace().id] += unitType.supplyRequired();
+                player.self.supplyUsed[unitType.getRace().id]
+                        .addOrSet(unitType.supplyRequired(), frameCount);
 
                 // Happens on RLF or RLF + 1, doesn't matter if we do twice
                 unit.self.isTraining         = true;
@@ -775,10 +788,10 @@ class CommandTemp {
                 int level                  = unit.getPlayer().getUpgradeLevel(upgradeType);
                 unit.self.remainingUpgradeTime = upgradeType.upgradeTime(level + 1);
 
-                player.self.minerals -= upgradeType.mineralPrice(level + 1);
-                player.self.gas      -= upgradeType.gasPrice(level + 1);
+                player.self.minerals.addOrSet(-upgradeType.mineralPrice(level + 1), frameCount);
+                player.self.gas.addOrSet(upgradeType.gasPrice(level + 1), frameCount);
 
-                player.self.isUpgrading[upgradeType.id] = true;
+                player.self.isUpgrading[upgradeType.id].update( true, frameCount);
             }
             break;
 
