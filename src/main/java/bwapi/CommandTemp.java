@@ -1,6 +1,12 @@
 package bwapi;
 
 /**
+ * Latency Compensation:
+ * Only need to implement LatCom for current frame, the server updates the next frame already if latcom is enabled.
+ * Use Caches for all internal state that might be affected by latcom, and add the (current) frame, to let Player & Unit
+ * check if they need to use the cached/latcom version of the value or the from server (or a combination of both)
+ *
+ * Inspiration:
  * https://github.com/bwapi/bwapi/blob/e4a29d73e6021037901da57ceb06e37248760240/bwapi/include/BWAPI/Client/CommandTemp.h
  */
 class CommandTemp {
@@ -38,12 +44,11 @@ class CommandTemp {
     }
 
     void execute(boolean isCurrentFrame) {
-        System.out.println("EXECUTE[" + game.getFrameCount() + "] " + command);
         // Immediately return if latency compensation is disabled or if the command was queued
         if (!game.isLatComEnabled() || command.isQueued()) return;
         Unit unit = command.unit;
         Unit target = command.target;
-        int frameCount = game.getFrameCount();
+        int frame = game.getFrameCount();
 
         if (isCurrentFrame) {
             switch (command.type) { // Commands which do things during the current frame
@@ -86,27 +91,27 @@ class CommandTemp {
         switch(command.type) {
             // RLF
             case Attack_Move:
-                unit.self.order                = Order.AttackMove;
-                unit.self.targetPositionX      = command.x;
-                unit.self.targetPositionY      = command.y;
-                unit.self.orderTargetPositionX = command.x;
-                unit.self.orderTargetPositionY = command.y;
+                unit.self.order.set(Order.AttackMove, frame);
+                unit.self.targetPositionX.set(command.x, frame);
+                unit.self.targetPositionY.set(command.y, frame);
+                unit.self.orderTargetPositionX.set(command.x, frame);
+                unit.self.orderTargetPositionY.set(command.y, frame);
                 break;
 
             // RLF
             case Attack_Unit:
                 if (target != null || !target.exists() || !unit.getType().canAttack())
                     return;
-                unit.self.order  = Order.AttackUnit;
-                unit.self.target = getUnitID(target);
+                unit.self.order.set(Order.AttackUnit, frame);
+                unit.self.target.set(getUnitID(target), frame);
                 break;
 
             // RLF
             case Build:
-                unit.self.order          = Order.PlaceBuilding;
-                unit.self.isConstructing = true;
-                unit.self.isIdle         = false;
-                unit.self.buildType      = UnitType.idToEnum[command.extra];
+                unit.self.order.set(Order.PlaceBuilding, frame);
+                unit.self.isConstructing.set(true, frame);
+                unit.self.isIdle.set(false, frame);
+                unit.self.buildType.set(UnitType.idToEnum[command.extra], frame);
                 break;
 
             // For building addons, SC takes minerals on RLF + 1.
@@ -117,20 +122,20 @@ class CommandTemp {
                 UnitType addonType = UnitType.idToEnum[command.extra];
                 switch (eventType) {
                     case Resource:
-                        player.self.minerals.addOrSet(-addonType.mineralPrice(), frameCount);
-                        player.self.gas.addOrSet(-addonType.gasPrice(), frameCount);
+                        player.self.minerals.addOrSet(-addonType.mineralPrice(), frame);
+                        player.self.gas.addOrSet(-addonType.gasPrice(), frame);
 
                         if (!isCurrentFrame) { // We will pretend the building is busy building, this doesn't
-                            unit.self.isIdle = false;
-                            unit.self.order = Order.PlaceAddon;
+                            unit.self.isIdle.set(false, frame);
+                            unit.self.order.set(Order.PlaceAddon, frame);
                         }
                         break;
 
                     case Order:
-                        unit.self.isConstructing = true;
-                        unit.self.order          = Order.Nothing;
-                        unit.self.secondaryOrder = Order.BuildAddon;
-                        unit.self.buildType      = UnitType.idToEnum[command.extra];
+                        unit.self.isConstructing.set(true, frame);
+                        unit.self.order.set(Order.Nothing, frame);
+                        unit.self.secondaryOrder.set(Order.BuildAddon, frame);
+                        unit.self.buildType.set(UnitType.idToEnum[command.extra], frame);
                         break;
                 }
             }
@@ -138,7 +143,7 @@ class CommandTemp {
 
             // RLF
             case Burrow:
-                unit.self.order = Order.Burrowing;
+                unit.self.order.set(Order.Burrowing, frame);
                 break;
 
             // RLF: Resource event
@@ -147,17 +152,17 @@ class CommandTemp {
                 switch(eventType) {
                     case Resource: {
                         UnitType addonType = unit.getBuildType();
-                        player.self.minerals.addOrSet((int) (addonType.mineralPrice() * 0.75), frameCount);
-                        player.self.gas.addOrSet((int) (addonType.gasPrice() * 0.75), frameCount);
-                        unit.self.buildType   = UnitType.None;
+                        player.self.minerals.addOrSet((int) (addonType.mineralPrice() * 0.75), frame);
+                        player.self.gas.addOrSet((int) (addonType.gasPrice() * 0.75), frame);
+                        unit.self.buildType.set(UnitType.None, frame);
                     }
                     break;
                     case Order:
-                        unit.self.remainingBuildTime = 0;
-                        unit.self.isConstructing     = false;
-                        unit.self.order              = Order.Nothing;
-                        unit.self.isIdle             = true;
-                        unit.self.buildUnit          = -1;
+                        unit.self.remainingBuildTime.set(0, frame);
+                        unit.self.isConstructing.set(false, frame);
+                        unit.self.order.set(Order.Nothing, frame);
+                        unit.self.isIdle.set(true, frame);
+                        unit.self.buildUnit.set(-1, frame);
                         break;
                 }
 
@@ -168,46 +173,46 @@ class CommandTemp {
             // RLF + 2: Finish event
             case Cancel_Construction: {
                 if (unit.getType().getRace() == Race.Terran) {
-                    Unit builder = game.getUnit(unit.self.buildUnit);
+                    Unit builder = unit.getBuildUnit();
                     if (builder != null && builder.exists()) {
                         switch (eventType) {
                             case Resource:
-                                builder.self.buildType = UnitType.None;
+                                builder.self.buildType.set(UnitType.None, frame);
                                 break;
                             case Order:
-                                builder.self.isConstructing = false;
-                                builder.self.order          = Order.ResetCollision;
+                                builder.self.isConstructing.set(false, frame);
+                                builder.self.order.set(Order.ResetCollision, frame);
                                 break;
                             case Finish:
-                                builder.self.order = Order.PlayerGuard;
+                                builder.self.order.set(Order.PlayerGuard, frame);
                                 break;
                         }
                     }
                 }
 
                 if (eventType == EventType.Resource) {
-                    unit.self.buildUnit          = -1;
-                    player.self.minerals.addOrSet((int) (unit.getType().mineralPrice() * 0.75), frameCount);
-                    player.self.gas.addOrSet((int) (unit.getType().gasPrice() * 0.75), frameCount);
-                    unit.self.remainingBuildTime = 0;
+                    unit.self.buildUnit.set(-1, frame);
+                    player.self.minerals.addOrSet((int) (unit.getType().mineralPrice() * 0.75), frame);
+                    player.self.gas.addOrSet((int) (unit.getType().gasPrice() * 0.75), frame);
+                    unit.self.remainingBuildTime.set(0, frame);
                 }
 
                 if (unit.getType().getRace() == Race.Zerg) {
                     switch (eventType) {
                         case Resource:
-                            unit.self.type           = unit.getType().whatBuilds().getFirst();
-                            unit.self.buildType      = UnitType.None;
-                            unit.self.isMorphing     = false;
-                            unit.self.order          = Order.ResetCollision;
-                            unit.self.isConstructing = false;
+                            unit.self.type.set(unit.getType().whatBuilds().getFirst(), frame);
+                            unit.self.buildType.set(UnitType.None, frame);
+                            unit.self.isMorphing.set(false, frame);
+                            unit.self.order.set(Order.ResetCollision, frame);
+                            unit.self.isConstructing.set(false, frame);
 
                             player.self.supplyUsed[unit.getType().getRace().id]
-                                    .addOrSet(unit.getType().supplyRequired(), frameCount);
+                                    .addOrSet(unit.getType().supplyRequired(), frame);
                             break;
 
                         case Order:
-                            unit.self.order  = Order.PlayerGuard;
-                            unit.self.isIdle = true;
+                            unit.self.order.set(Order.PlayerGuard, frame);
+                            unit.self.isIdle.set(true, frame);
                             break;
                     }
                 }
@@ -227,28 +232,28 @@ class CommandTemp {
                         UnitType newType = builtType.whatBuilds().getFirst();
 
                         if (newType.isBuilding()) {
-                            player.self.minerals.addOrSet((int) (builtType.mineralPrice() * 0.75), frameCount);
-                            player.self.gas.addOrSet((int) (builtType.gasPrice() * 0.75), frameCount);
+                            player.self.minerals.addOrSet((int) (builtType.mineralPrice() * 0.75), frame);
+                            player.self.gas.addOrSet((int) (builtType.gasPrice() * 0.75), frame);
                         }
                         else {
-                            player.self.minerals.addOrSet(builtType.mineralPrice(), frameCount);
-                            player.self.gas.addOrSet(builtType.gasPrice(), frameCount);
+                            player.self.minerals.addOrSet(builtType.mineralPrice(), frame);
+                            player.self.gas.addOrSet(builtType.gasPrice(), frame);
                         }
 
                         if (newType.isBuilding() && newType.producesCreep()) {
-                            unit.self.order = Order.InitCreepGrowth;
+                            unit.self.order.set(Order.InitCreepGrowth, frame);
                         }
 
-                        if (unit.self.type != UnitType.Zerg_Egg) { // Issue #781
+                        if (unit.getType() != UnitType.Zerg_Egg) { // Issue #781
                             // https://github.com/bwapi/bwapi/issues/781
-                            unit.self.type = newType;
+                            unit.self.type.set(newType, frame);
                         }
 
-                        unit.self.buildType          = UnitType.None;
-                        unit.self.isConstructing     = false;
-                        unit.self.isMorphing         = false;
-                        unit.self.isCompleted        = true;
-                        unit.self.remainingBuildTime = 0;
+                        unit.self.buildType.set(UnitType.None, frame);
+                        unit.self.isConstructing.set(false, frame);
+                        unit.self.isMorphing.set(false, frame);
+                        unit.self.isCompleted.set(true, frame);
+                        unit.self.remainingBuildTime.set(0, frame);
                     }
 
                     break;
@@ -256,23 +261,23 @@ class CommandTemp {
                     case Order:
                         if (unit.getType().isBuilding()) {// This event would hopefully not have been created
                                                          // if this wasn't true (see event note above)
-                            unit.self.isIdle = true;
-                            unit.self.order  = Order.Nothing;
+                            unit.self.isIdle.set(true, frame);
+                            unit.self.order.set(Order.Nothing, frame);
                             if(unit.getType() == UnitType.Zerg_Hatchery || unit.getType() == UnitType.Zerg_Lair) {
                              // Type should have updated during last event to the cancelled type
-                                unit.self.secondaryOrder = Order.SpreadCreep;
+                                unit.self.secondaryOrder.set(Order.SpreadCreep, frame);
                             }
                         }
                         else {
                             player.self.supplyUsed[unit.getType().getRace().id]
                                     .addOrSet(
                                     - (unit.getType().supplyRequired() * (1 + (unit.getType().isTwoUnitsInOneEgg() ? 1 : 0))),
-                                    frameCount);
+                                    frame);
 
                             player.self.supplyUsed[unit.getType().getRace().id].addOrSet( // Could these races be different? Probably not.
                                     // Should we handle it?            Definetely.
                                     unit.getType().whatBuilds().getFirst().supplyRequired() * unit.getType().whatBuilds().getSecond(),
-                                    frameCount);
+                                    frame);
                             // Note: unit.getType().whatBuilds().second is always 1 but we
                             // might as well handle the general case, in case Blizzard
                             // all of a sudden allows you to cancel archon morphs
@@ -282,14 +287,14 @@ class CommandTemp {
 
                     case Finish:
                         if(unit.getType() == UnitType.Zerg_Hatchery || unit.getType() == UnitType.Zerg_Lair) {
-                            unit.self.secondaryOrder = Order.SpawningLarva;
+                            unit.self.secondaryOrder.set(Order.SpawningLarva, frame);
                         }
                         else if(!unit.getType().isBuilding()) {
-                            unit.self.order          = Order.PlayerGuard;
-                            unit.self.isCompleted    = true;
-                            unit.self.isConstructing = false;
-                            unit.self.isIdle         = true;
-                            unit.self.isMorphing     = false;
+                            unit.self.order.set(Order.PlayerGuard, frame);
+                            unit.self.isCompleted.set(true, frame);
+                            unit.self.isConstructing.set(false, frame);
+                            unit.self.isIdle.set(true, frame);
+                            unit.self.isMorphing .set(false, frame);
                         }
                         break;
                 }
@@ -302,16 +307,16 @@ class CommandTemp {
                 switch(eventType) {
                     case Resource: {
                         TechType techType =  unit.getTech();
-                        player.self.minerals.addOrSet(techType.mineralPrice(), frameCount);
-                        player.self.gas.addOrSet(techType.gasPrice(), frameCount);
-                        unit.self.remainingResearchTime = 0;
-                        unit.self.tech                  = TechType.None;
+                        player.self.minerals.addOrSet(techType.mineralPrice(), frame);
+                        player.self.gas.addOrSet(techType.gasPrice(), frame);
+                        unit.self.remainingResearchTime.set(0, frame);
+                        unit.self.tech.set(TechType.None, frame);
                     }
                     break;
 
                     case Order:
-                        unit.self.order  = Order.Nothing;
-                        unit.self.isIdle = true;
+                        unit.self.order.set(Order.Nothing, frame);
+                        unit.self.isIdle .set(true, frame);
                         break;
                 }
             }
@@ -325,15 +330,15 @@ class CommandTemp {
                 if (command.extra != 0) {
                     if (eventType == EventType.Resource) {
                         UnitType unitType = unit.getTrainingQueue().get(command.extra);
-                        player.self.minerals.addOrSet(unitType.mineralPrice(), frameCount);
-                        player.self.gas.addOrSet(unitType.gasPrice(), frameCount);
+                        player.self.minerals.addOrSet(unitType.mineralPrice(), frame);
+                        player.self.gas.addOrSet(unitType.gasPrice(), frame);
 
                         // Shift training queue back one slot after the cancelled unit
                         for (int i = command.extra; i < 4; ++i) {
-                            unit.self.trainingQueue[i] = unit.getTrainingQueue().get(i + 1);
+                            unit.self.trainingQueue[i].set(unit.getTrainingQueue().get(i + 1), frame);
                         }
 
-                        --unit.self.trainingQueueCount;
+                        unit.self.trainingQueueCount.addOrSet(- 1, frame);
                     }
                     break;
                 }
@@ -346,40 +351,40 @@ class CommandTemp {
                 switch(eventType) {
                     case Resource: {
                         UnitType unitType = unit.getTrainingQueue().get(unit.getTrainingQueueCount() - 1);
-                        player.self.minerals.addOrSet(unitType.mineralPrice(), frameCount);
-                        player.self.gas.addOrSet(unitType.gasPrice(), frameCount);
+                        player.self.minerals.addOrSet(unitType.mineralPrice(), frame);
+                        player.self.gas.addOrSet(unitType.gasPrice(), frame);
 
-                        unit.self.buildUnit = -1;
+                        unit.self.buildUnit.set(-1, frame);
 
-                        if (unit.self.trainingQueueCount == 1) {
-                            unit.self.isIdle     = false;
-                            unit.self.isTraining = false;
+                        if (unit.getTrainingQueueCount() == 1) {
+                            unit.self.isIdle.set(false, frame);
+                            unit.self.isTraining.set(false, frame);
                         }
                         break;
                     }
 
                     case Order: {
-                        --unit.self.trainingQueueCount;
+                        unit.self.trainingQueueCount.addOrSet(- 1, frame);
                         UnitType unitType = unit.getTrainingQueue().get(unit.getTrainingQueueCount());
                         player.self.supplyUsed[unitType.getRace().id]
-                                .addOrSet(-unitType.supplyRequired(), frameCount);
+                                .addOrSet(-unitType.supplyRequired(), frame);
 
                         if (unit.getTrainingQueueCount() == 0) {
-                            unit.self.buildType = UnitType.None;
+                            unit.self.buildType.set(UnitType.None, frame);
                         }
                         else {
                             UnitType ut = unit.getTrainingQueue().get(unit.getTrainingQueueCount() - 1);
                             // Actual time decreases, but we'll let it be the buildTime until latency catches up.
-                            unit.self.remainingTrainTime = ut.buildTime();
-                            unit.self.buildType = ut;
+                            unit.self.remainingTrainTime.set(ut.buildTime(), frame);
+                            unit.self.buildType.set(ut, frame);
                         }
                     }
 
                     break;
 
                     case Finish:
-                        if (unit.self.buildType == UnitType.None) {
-                            unit.self.order = Order.Nothing;
+                        if (unit.getBuildType() == UnitType.None) {
+                            unit.self.order.set(Order.Nothing, frame);
                         }
                         break;
                 }
@@ -394,17 +399,17 @@ class CommandTemp {
                         UpgradeType upgradeType = unit.getUpgrade();
                         int nextLevel     = unit.getPlayer().getUpgradeLevel(upgradeType) + 1;
 
-                        player.self.minerals.addOrSet(upgradeType.mineralPrice(nextLevel), frameCount);
-                        player.self.gas.addOrSet(upgradeType.gasPrice(nextLevel), frameCount);
+                        player.self.minerals.addOrSet(upgradeType.mineralPrice(nextLevel), frame);
+                        player.self.gas.addOrSet(upgradeType.gasPrice(nextLevel), frame);
 
-                        unit.self.upgrade              = UpgradeType.None;
-                        unit.self.remainingUpgradeTime = 0;
+                        unit.self.upgrade.set(UpgradeType.None, frame);
+                        unit.self.remainingUpgradeTime.set(0, frame);
                     }
                     break;
 
                     case Order:
-                        unit.self.order   = Order.Nothing;
-                        unit.self.isIdle  = true;
+                        unit.self.order.set(Order.Nothing, frame);
+                        unit.self.isIdle.set(true, frame);
                         break;
                 }
 
@@ -412,35 +417,35 @@ class CommandTemp {
 
             // RLF
             case Cloak:
-                unit.self.order   = Order.Cloak;
-                unit.self.energy -= unit.getType().cloakingTech().energyCost();
+                unit.self.order.set(Order.Cloak, frame);
+                unit.self.energy.set(-unit.getType().cloakingTech().energyCost(), frame);
                 break;
 
             // RLF
             case Decloak:
-                unit.self.order = Order.Decloak;
+                unit.self.order.set(Order.Decloak, frame);
                 break;
 
             // RLF
             case Follow:
-                unit.self.order    = Order.Follow;
-                unit.self.target   = getUnitID(target);
-                unit.self.isIdle   = false;
-                unit.self.isMoving = true;
+                unit.self.order.set(Order.Follow, frame);
+                unit.self.target.set(getUnitID(target), frame);
+                unit.self.isIdle.set(false, frame);
+                unit.self.isMoving.set(true, frame);
                 break;
 
             // RLF
             case Gather:
-                unit.self.target      = getUnitID(target);
-                unit.self.isIdle      = false;
-                unit.self.isMoving    = true;
-                unit.self.isGathering = true;
+                unit.self.target.set(getUnitID(target), frame);
+                unit.self.isIdle.set(false, frame);
+                unit.self.isMoving.set(true, frame);
+                unit.self.isGathering.set(true, frame);
 
                 // @TODO: Fully time and test this order
                 if (target.getType().isMineralField())
-                    unit.self.order = Order.MoveToMinerals;
+                    unit.self.order.set(Order.MoveToMinerals, frame);
                 else if (target.getType().isRefinery())
-                    unit.self.order = Order.MoveToGas;
+                    unit.self.order.set(Order.MoveToGas, frame);
 
                 break;
 
@@ -451,17 +456,17 @@ class CommandTemp {
                     case Order:
                         Unit building = unit.getBuildUnit();
                         if (building != null) {
-                        building.self.buildUnit = -1;
+                        building.self.buildUnit.set(-1, frame);
                     }
-                    unit.self.buildUnit      = -1;
-                    unit.self.order          = Order.ResetCollision;
-                    unit.self.isConstructing = false;
-                    unit.self.buildType      = UnitType.None;
+                    unit.self.buildUnit.set(-1, frame);
+                    unit.self.order.set(Order.ResetCollision, frame);
+                    unit.self.isConstructing.set(false, frame);
+                    unit.self.buildType.set(UnitType.None, frame);
                     break;
 
                     case Finish:
-                        unit.self.order  = Order.PlayerGuard;
-                        unit.self.isIdle = true;
+                        unit.self.order.set(Order.PlayerGuard, frame);
+                        unit.self.isIdle.set(true, frame);
                         break;
                 }
 
@@ -469,38 +474,38 @@ class CommandTemp {
 
             // RLF
             case Hold_Position:
-                unit.self.isMoving = false;
-                unit.self.isIdle   = false;
-                unit.self.order    = Order.HoldPosition;
+                unit.self.isMoving.set(false, frame);
+                unit.self.isIdle.set(false, frame);
+                unit.self.order.set(Order.HoldPosition, frame);
                 break;
 
             // RLF
             case Land:
-                unit.self.order  = Order.BuildingLand;
-                unit.self.isIdle = false;
+                unit.self.order.set(Order.BuildingLand, frame);
+                unit.self.isIdle.set(false, frame);
                 break;
 
             // RLF
             case Lift:
-                unit.self.order  = Order.BuildingLiftOff;
-                unit.self.isIdle = false;
+                unit.self.order.set(Order.BuildingLiftOff, frame);
+                unit.self.isIdle.set(false, frame);
                 break;
 
             // RLF
             case Load:
                 if (unit.getType() == UnitType.Terran_Bunker) {
-                    unit.self.order = Order.PickupBunker;
-                    unit.self.target = getUnitID(target);
+                    unit.self.order.set(Order.PickupBunker, frame);
+                    unit.self.target.set(getUnitID(target), frame);
                 }
                 else if (unit.getType().spaceProvided() != 0) {
-                    unit.self.order = Order.PickupTransport;
-                    unit.self.target = getUnitID(target);
+                    unit.self.order.set(Order.PickupTransport, frame);
+                    unit.self.target.set(getUnitID(target), frame);
                 }
                 else if (target.getType().spaceProvided() != 0) {
-                    unit.self.order = Order.EnterTransport;
-                    unit.self.target = getUnitID(target);
+                    unit.self.order.set(Order.EnterTransport, frame);
+                    unit.self.target.set(getUnitID(target), frame);
                 }
-                unit.self.isIdle = false;
+                unit.self.isIdle.set(false, frame);
 
                 break;
 
@@ -514,55 +519,56 @@ class CommandTemp {
                 switch (eventType) {
                     case Resource:
                         if(!isCurrentFrame) {
-                            unit.self.isCompleted    = false;
-                            unit.self.isIdle         = false;
-                            unit.self.isConstructing = true;
-                            unit.self.isMorphing     = true;
-                            unit.self.buildType      = morphType;
+                            unit.self.isCompleted.set(false, frame);
+                            unit.self.isIdle.set(false, frame);
+                            unit.self.isConstructing.set(true, frame);
+                            unit.self.isMorphing.set(true, frame);
+                            unit.self.buildType.set(morphType, frame);
                         }
 
                         if (unit.getType().isBuilding()) {
                             if (!isCurrentFrame) { // Actions that don't happen when we're reserving resources
-                                unit.self.order = Order.ZergBuildingMorph;
-                                unit.self.type  = morphType;
+                                unit.self.order.set(Order.ZergBuildingMorph, frame);
+                                unit.self.type.set(morphType, frame);
                             }
-                            player.self.minerals.addOrSet(-morphType.mineralPrice(), frameCount);
-                            player.self.gas.addOrSet(-morphType.gasPrice(), frameCount);
+                            player.self.minerals.addOrSet(-morphType.mineralPrice(), frame);
+                            player.self.gas.addOrSet(-morphType.gasPrice(), frame);
                         }
                         else {
                             player.self.supplyUsed[morphType.getRace().id]
                                     .addOrSet(morphType.supplyRequired() *
                                     (1 + (morphType.isTwoUnitsInOneEgg() ? 1 : 0)) - unit.getType().supplyRequired(),
-                                    frameCount);
+                                    frame);
 
                             if(!isCurrentFrame) {
-                                unit.self.order       = Order.ZergUnitMorph;
+                                unit.self.order.set(Order.ZergUnitMorph, frame);
 
-                                player.self.minerals.addOrSet(-morphType.mineralPrice(), frameCount);
-                                player.self.gas.addOrSet(-morphType.gasPrice(), frameCount);
+                                player.self.minerals.addOrSet(-morphType.mineralPrice(), frame);
+                                player.self.gas.addOrSet(-morphType.gasPrice(), frame);
 
                                 switch(morphType) {
                                     case Zerg_Lurker_Egg:
-                                        unit.self.type = UnitType.Zerg_Lurker_Egg;
+                                        unit.self.type.set(UnitType.Zerg_Lurker_Egg, frame);
                                         break;
 
                                     case Zerg_Devourer:
                                     case Zerg_Guardian:
-                                        unit.self.type = UnitType.Zerg_Cocoon;
+                                        unit.self.type.set(UnitType.Zerg_Cocoon, frame);
                                         break;
 
                                     default:
-                                        unit.self.type = UnitType.Zerg_Egg;
+                                        unit.self.type.set(UnitType.Zerg_Egg, frame);
                                         break;
                                 }
+                                unit.self.trainingQueue[unit.getTrainingQueueCount()].set(morphType, frame);
+                                unit.self.trainingQueueCount.addOrSet( +1, frame);
 
-                                unit.self.trainingQueue[unit.self.trainingQueueCount++] = morphType;
                             }
                         }
                         break;
                     case Order:
                         if (unit.getType().isBuilding()) {
-                            unit.self.order = Order.IncompleteBuilding;
+                            unit.self.order.set(Order.IncompleteBuilding, frame);
                         }
                         break;
                 }
@@ -572,24 +578,24 @@ class CommandTemp {
 
             // RLF
             case Move:
-                unit.self.order                = Order.Move;
-                unit.self.targetPositionX      = command.x;
-                unit.self.targetPositionY      = command.y;
-                unit.self.orderTargetPositionX = command.x;
-                unit.self.orderTargetPositionY = command.y;
-                unit.self.isMoving             = true;
-                unit.self.isIdle               = false;
+                unit.self.order.set(Order.Move, frame);
+                unit.self.targetPositionX.set(command.x, frame);
+                unit.self.targetPositionY.set(command.y, frame);
+                unit.self.orderTargetPositionX.set(command.x, frame);
+                unit.self.orderTargetPositionY.set(command.y, frame);
+                unit.self.isMoving.set(true, frame);
+                unit.self.isIdle.set(false, frame);
                 break;
 
             // RLF
             case Patrol:
-                unit.self.order                = Order.Patrol;
-                unit.self.isIdle               = false;
-                unit.self.isMoving             = true;
-                unit.self.targetPositionX      = command.x;
-                unit.self.targetPositionY      = command.y;
-                unit.self.orderTargetPositionX = command.x;
-                unit.self.orderTargetPositionY = command.y;
+                unit.self.order.set(Order.Patrol, frame);
+                unit.self.isIdle.set(false, frame);
+                unit.self.isMoving.set(true, frame);
+                unit.self.targetPositionX.set(command.x, frame);
+                unit.self.targetPositionY.set(command.y, frame);
+                unit.self.orderTargetPositionX.set(command.x, frame);
+                unit.self.orderTargetPositionY.set(command.y, frame);
                 break;
 
             // RLF
@@ -597,22 +603,22 @@ class CommandTemp {
                 if (unit.getType() != UnitType.Terran_SCV) {
                     return;
                 }
-                unit.self.order = Order.Repair;
-                unit.self.target = getUnitID(target);
-                unit.self.isIdle = false;
+                unit.self.order.set(Order.Repair, frame);
+                unit.self.target.set(getUnitID(target), frame);
+                unit.self.isIdle.set(false, frame);
                 break;
 
             // RLF
             case Research: {
                 TechType techType = TechType.idToEnum[command.extra];
-                unit.self.order = Order.ResearchTech;
-                unit.self.tech = techType;
-                unit.self.isIdle = false;
-                unit.self.remainingResearchTime = techType.researchTime();
+                unit.self.order.set(Order.ResearchTech, frame);
+                unit.self.tech.set(techType, frame);
+                unit.self.isIdle.set(false, frame);
+                unit.self.remainingResearchTime.set(techType.researchTime(), frame);
 
-                player.self.minerals.addOrSet(-techType.mineralPrice(), frameCount);
-                player.self.gas.addOrSet(-techType.gasPrice(), frameCount);
-                player.self.isResearching[techType.id].update(true, frameCount);
+                player.self.minerals.addOrSet(-techType.mineralPrice(), frame);
+                player.self.gas.addOrSet(-techType.gasPrice(), frame);
+                player.self.isResearching[techType.id].set(true, frame);
             }
             break;
 
@@ -622,50 +628,50 @@ class CommandTemp {
                     return;
                 }
 
-                unit.self.order       = (unit.isCarryingGas() ? Order.ReturnGas : Order.ReturnMinerals);
-                unit.self.isGathering = true;
-                unit.self.isIdle      = false;
+                unit.self.order.set(unit.isCarryingGas() ? Order.ReturnGas : Order.ReturnMinerals, frame);
+                unit.self.isGathering.set(true, frame);
+                unit.self.isIdle.set(false, frame);
 
                 break;
 
             // RLF
             case Right_Click_Position:
-                unit.self.order                = Order.Move;
-                unit.self.targetPositionX      = command.x;
-                unit.self.targetPositionY      = command.y;
-                unit.self.orderTargetPositionX = command.x;
-                unit.self.orderTargetPositionY = command.y;
-                unit.self.isMoving             = true;
-                unit.self.isIdle               = false;
+                unit.self.order.set(Order.Move, frame);
+                unit.self.targetPositionX.set(command.x, frame);
+                unit.self.targetPositionY.set(command.y, frame);
+                unit.self.orderTargetPositionX.set(command.x, frame);
+                unit.self.orderTargetPositionY.set(command.y, frame);
+                unit.self.isMoving.set(true, frame);
+                unit.self.isIdle.set(false, frame);
                 break;
 
             // RLF
             case Right_Click_Unit:
-                unit.self.target   = getUnitID(target);
-                unit.self.isIdle   = false;
-                unit.self.isMoving = true;
+                unit.self.target.set(getUnitID(target), frame);
+                unit.self.isIdle.set(false, frame);
+                unit.self.isMoving.set(true, frame);
 
                 if (unit.getType().isWorker() && target.getType().isMineralField()) {
-                    unit.self.isGathering = true;
-                    unit.self.order       = Order.MoveToMinerals;
+                    unit.self.isGathering.set(true, frame);
+                    unit.self.order.set(Order.MoveToMinerals, frame);
                 }
                 else if (unit.getType().isWorker() && target.getType().isRefinery()) {
-                    unit.self.isGathering = true;
-                    unit.self.order       = Order.MoveToGas;
+                    unit.self.isGathering.set(true, frame);
+                    unit.self.order.set(Order.MoveToGas, frame);
                 }
                 else if (unit.getType().isWorker() && target.getType().getRace() == Race.Terran &&
                                 target.getType().whatBuilds().getFirst() == unit.getType() && !target.isCompleted()) {
-                    unit.self.order            = Order.ConstructingBuilding;
-                    unit.self.buildUnit        = getUnitID(target);
-                    target.self.buildUnit      = getUnitID(unit);
-                    unit.self.isConstructing   = true;
-                    target.self.isConstructing = true;
+                    unit.self.order.set(Order.ConstructingBuilding, frame);
+                    unit.self.buildUnit.set(getUnitID(target), frame);
+                    target.self.buildUnit.set(getUnitID(unit), frame);
+                    unit.self.isConstructing.set(true, frame);
+                    target.self.isConstructing.set(true, frame);
                 }
                 else if (unit.getType().canAttack() && target.getPlayer() != unit.getPlayer() && !target.getType().isNeutral()) {
-                    unit.self.order = Order.AttackUnit;
+                    unit.self.order.set(Order.AttackUnit, frame);
                 }
                 else if(unit.getType().canMove()) {
-                    unit.self.order = Order.Follow;
+                    unit.self.order.set(Order.Follow, frame);
                 }
 
                 break;
@@ -676,10 +682,10 @@ class CommandTemp {
                     return;
                 }
 
-                unit.self.order          = Order.RallyPointTile;
-                unit.self.rallyPositionX = command.x;
-                unit.self.rallyPositionY = command.y;
-                unit.self.rallyUnit      = -1;
+                unit.self.order.set(Order.RallyPointTile, frame);
+                unit.self.rallyPositionX.set(command.x, frame);
+                unit.self.rallyPositionY.set(command.y, frame);
+                unit.self.rallyUnit.set(-1, frame);
 
                 break;
 
@@ -692,20 +698,20 @@ class CommandTemp {
                     return;
                 }
 
-                unit.self.order = Order.RallyPointUnit;
-                unit.self.rallyUnit = getUnitID(target);
+                unit.self.order.set(Order.RallyPointUnit, frame);
+                unit.self.rallyUnit.set(getUnitID(target), frame);
 
                 break;
 
             // RLF
             case Siege:
-                unit.self.order = Order.Sieging;
+                unit.self.order.set(Order.Sieging, frame);
                 break;
 
             // RLF
             case Stop:
-                unit.self.order  = Order.Stop;
-                unit.self.isIdle = true;
+                unit.self.order.set(Order.Stop, frame);
+                unit.self.isIdle.set(true, frame);
                 break;
 
             // With train, the game does not take the supply until RLF + 1.
@@ -715,23 +721,23 @@ class CommandTemp {
 
                 if (!isCurrentFrame) {
                     // Happens on RLF, we don't want to duplicate this.
-                    player.self.minerals.addOrSet(-unitType.mineralPrice(), frameCount);
-                    player.self.gas.addOrSet(-unitType.gasPrice(), frameCount);
+                    player.self.minerals.addOrSet(-unitType.mineralPrice(), frame);
+                    player.self.gas.addOrSet(-unitType.gasPrice(), frame);
                 }
 
                 // Happens on RLF + 1, we want to pretend this happens on RLF.
-                unit.self.trainingQueue[unit.getTrainingQueueCount()] = unitType;
-                unit.self.trainingQueueCount++;
+                unit.self.trainingQueue[unit.getTrainingQueueCount()].set(unitType, frame);
+                unit.self.trainingQueueCount.addOrSet(+1, frame);
                 player.self.supplyUsed[unitType.getRace().id]
-                        .addOrSet(unitType.supplyRequired(), frameCount);
+                        .addOrSet(unitType.supplyRequired(), frame);
 
                 // Happens on RLF or RLF + 1, doesn't matter if we do twice
-                unit.self.isTraining         = true;
-                unit.self.isIdle             = false;
-                unit.self.remainingTrainTime = unitType.buildTime();
+                unit.self.isTraining.set(true, frame);
+                unit.self.isIdle.set(false, frame);
+                unit.self.remainingTrainTime.set(unitType.buildTime(), frame);
 
                 if (unitType == UnitType.Terran_Nuclear_Missile) {
-                    unit.self.secondaryOrder = Order.Train;
+                    unit.self.secondaryOrder.set(Order.Train, frame);
                 }
             }
 
@@ -739,67 +745,67 @@ class CommandTemp {
 
             // RLF
             case Unburrow:
-                unit.self.order = Order.Unburrowing;
+                unit.self.order.set(Order.Unburrowing, frame);
                 break;
 
             // RLF
             case Unload:
-                unit.self.order  = Order.Unload;
-                unit.self.target = getUnitID(target);
+                unit.self.order.set(Order.Unload, frame);
+                unit.self.target.set(getUnitID(target), frame);
                 break;
 
             // RLF
             case Unload_All:
                 if (unit.getType() == UnitType.Terran_Bunker) {
-                    unit.self.order = Order.Unload;
+                    unit.self.order.set(Order.Unload, frame);
                 }
                 else {
-                    unit.self.order                = Order.MoveUnload;
-                    unit.self.targetPositionX      = command.x;
-                    unit.self.targetPositionY      = command.y;
-                    unit.self.orderTargetPositionX = command.x;
-                    unit.self.orderTargetPositionY = command.y;
+                    unit.self.order .set(Order.MoveUnload, frame);
+                    unit.self.targetPositionX.set(command.x, frame);
+                    unit.self.targetPositionY.set(command.y, frame);
+                    unit.self.orderTargetPositionX.set(command.x, frame);
+                    unit.self.orderTargetPositionY.set(command.y, frame);
                 }
 
                 break;
 
             // RLF
             case Unload_All_Position:
-                unit.self.order                = Order.MoveUnload;
-                unit.self.targetPositionX      = command.x;
-                unit.self.targetPositionY      = command.y;
-                unit.self.orderTargetPositionX = command.x;
-                unit.self.orderTargetPositionY = command.y;
+                unit.self.order.set(Order.MoveUnload, frame);
+                unit.self.targetPositionX.set(command.x, frame);
+                unit.self.targetPositionY.set(command.y, frame);
+                unit.self.orderTargetPositionX.set(command.x, frame);
+                unit.self.orderTargetPositionY.set(command.y, frame);
                 break;
 
             // RLF
             case Unsiege:
-                unit.self.order = Order.Unsieging;
+                unit.self.order.set(Order.Unsieging, frame);
                 break;
 
             // RLF
             case Upgrade: {
                 UpgradeType upgradeType = UpgradeType.idToEnum[command.extra];
 
-                unit.self.order   = Order.Upgrade;
-                unit.self.upgrade = upgradeType;
-                unit.self.isIdle  = false;
+                unit.self.order.set(Order.Upgrade, frame);
+                unit.self.upgrade.set(upgradeType, frame);
+                unit.self.isIdle.set(false, frame);
 
                 int level                  = unit.getPlayer().getUpgradeLevel(upgradeType);
-                unit.self.remainingUpgradeTime = upgradeType.upgradeTime(level + 1);
+                unit.self.remainingUpgradeTime.set(upgradeType.upgradeTime(level + 1), frame);
 
-                player.self.minerals.addOrSet(-upgradeType.mineralPrice(level + 1), frameCount);
-                player.self.gas.addOrSet(upgradeType.gasPrice(level + 1), frameCount);
+                player.self.minerals.addOrSet(-upgradeType.mineralPrice(level + 1), frame);
+                player.self.gas.addOrSet(upgradeType.gasPrice(level + 1), frame);
 
-                player.self.isUpgrading[upgradeType.id].update( true, frameCount);
+                player.self.isUpgrading[upgradeType.id].set( true, frame);
             }
             break;
 
             // RLF
             case Use_Tech:
                 if (TechType.idToEnum[command.extra] == TechType.Stim_Packs && unit.getHitPoints() > 10) {
-                    unit.self.hitPoints -= 10;
-                    unit.self.stimTimer = 17;
+                    unit.self.hitPoints.addOrSet(-10, frame);
+                    unit.self.stimTimer.set(17, frame);
                 }
                 break;
 
@@ -811,11 +817,11 @@ class CommandTemp {
                     return;
                 }
 
-                unit.self.order                = techType.getOrder();
-                unit.self.targetPositionX      = command.x;
-                unit.self.targetPositionY      = command.y;
-                unit.self.orderTargetPositionX = command.x;
-                unit.self.orderTargetPositionY = command.y;
+                unit.self.order.set(techType.getOrder(), frame);
+                unit.self.targetPositionX.set(command.x, frame);
+                unit.self.targetPositionY.set(command.y, frame);
+                unit.self.orderTargetPositionX.set(command.x, frame);
+                unit.self.orderTargetPositionY.set(command.y, frame);
             }
 
             break;
@@ -828,15 +834,15 @@ class CommandTemp {
                     return;
                 }
 
-                unit.self.order                = techType.getOrder();
-                unit.self.orderTarget          = getUnitID(target);
+                unit.self.order.set(techType.getOrder(), frame);
+                unit.self.orderTarget.set(getUnitID(target), frame);
 
                 Position targetPosition    = target.getPosition();
 
-                unit.self.targetPositionX      = targetPosition.x;
-                unit.self.targetPositionY      = targetPosition.y;
-                unit.self.orderTargetPositionX = targetPosition.x;
-                unit.self.orderTargetPositionY = targetPosition.y;
+                unit.self.targetPositionX.set(targetPosition.x, frame);
+                unit.self.targetPositionY.set(targetPosition.y, frame);
+                unit.self.orderTargetPositionX.set(targetPosition.x, frame);
+                unit.self.orderTargetPositionY.set(targetPosition.y, frame);
 
                 break;
             }
